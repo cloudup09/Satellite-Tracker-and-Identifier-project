@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Satellite Tracker</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script>
+  // Must be set before Cesium.js loads.
+  window.CESIUM_BASE_URL = 'https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/';
+</script>
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@6.0.0/dist/satellite.min.js"></script>
+
+<style>
+  :root {
+    --bg: #050a09;
+    --accent: #00ffcc;
+    --accent-dim: rgba(0, 255, 204, 0.14);
+    --panel-bg: rgba(6, 14, 13, 0.88);
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #d8f5ee;
+    --text-dim: #7fa89c;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    font-family: var(--sans);
+    color: var(--text);
+    overflow: hidden;
+  }
+
+  #cesiumContainer {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* Cesium's own credit/attribution strip — keep it, just quiet it down */
+  .cesium-viewer-bottom {
+    filter: opacity(0.6);
+  }
+
+  .chip {
+    position: fixed;
+    z-index: 20;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--text-dim);
+    backdrop-filter: blur(6px);
+  }
+
+  .chip--status {
+    top: 16px;
+    left: 16px;
+  }
+
+  .search-bar {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    gap: 6px;
+  }
+
+  .search-bar input {
+    width: 260px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 8px 12px;
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+  }
+
+  .search-bar input:focus {
+    border-color: var(--accent);
+  }
+
+  .search-bar input::placeholder {
+    color: var(--text-dim);
+  }
+
+  .search-bar button {
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 8px 14px;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+    cursor: pointer;
+  }
+
+  .search-bar button:hover {
+    background: rgba(0, 255, 204, 0.24);
+  }
+
+  .panel {
+    display: none;
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 20;
+    width: 230px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 14px;
+    backdrop-filter: blur(6px);
+  }
+
+  .panel__header {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    word-break: break-word;
+  }
+
+  .panel__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    padding: 4px 0;
+    color: var(--text-dim);
+  }
+
+  .panel__row strong {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+
+  .hover-label {
+    display: none;
+    position: fixed;
+    z-index: 30;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 4px 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    pointer-events: none;
+  }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: var(--bg);
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .spinner {
+    width: 28px;
+    height: 28px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+</style>
+</head>
+<body>
+
+<div id="cesiumContainer"></div>
+
+<div id="loading" class="overlay">
+  <div class="spinner"></div>
+  <p>Acquiring satellite data…</p>
+</div>
+
+<div id="status" class="chip chip--status">Tracking: 0 Satellites</div>
+
+<div class="search-bar">
+  <input id="searchBox" type="text" placeholder="Search by name or NORAD ID" autocomplete="off">
+  <button id="searchButton">Locate</button>
+</div>
+
+<div id="hoverLabel" class="hover-label"></div>
+
+<div id="details" class="panel">
+  <div class="panel__header" id="selectedName">—</div>
+  <div class="panel__row"><span>NORAD ID</span><strong id="norad">—</strong></div>
+  <div class="panel__row"><span>Altitude</span><strong id="altitude">—</strong></div>
+  <div class="panel__row"><span>Latitude</span><strong id="latitude">—</strong></div>
+  <div class="panel__row"><span>Longitude</span><strong id="longitude">—</strong></div>
+  <div class="panel__row"><span>Speed</span><strong id="speed">—</strong></div>
+</div>
+
+<script>
+  /*
+   * ASSUMED DEFAULTS — swap these for your real project's values
+   * -------------------------------------------------------------
+   * - CURRENT_GROUP / fetchSatellites(): points at CelesTrak's public
+   *   GP data feed. Change GROUP below to whatever set you were using
+   *   ('active', 'starlink', 'gps-ops', etc). 'stations' is small and
+   *   fast, good for testing.
+   * - 'active' currently returns 15,000+ objects. That's a lot of SGP4
+   *   propagation if it's recomputed every render frame, so the real
+   *   fix for smoothness at that scale is POSITION_UPDATE_INTERVAL_MS
+   *   below (throttled recompute) rather than capping the count.
+   * - Viewer uses a token-free OpenStreetMap basemap so this runs with
+   *   no Cesium Ion account. If you have an Ion token, set it below
+   *   and swap the baseLayer for Cesium's own imagery/terrain.
+   */
+  const CURRENT_GROUP = 'active';
+
+  // How often (ms of real time) each satellite's on-screen position is
+  // recomputed. Orbital motion is slow relative to a render frame, so
+  // recalculating SGP4 for 15,000 satellites at 60fps is mostly wasted
+  // work - throttling to a few times a second is visually identical for
+  // orbital speeds and is what makes the full catalog feel smooth instead
+  // of 15,000 propagations competing for the main thread every frame.
+  const POSITION_UPDATE_INTERVAL_MS = 300;
+
+  let satellites = [];
+  let entities = [];
+
+  const viewer = new Cesium.Viewer('cesiumContainer', {
+    baseLayer: new Cesium.ImageryLayer(
+      new Cesium.OpenStreetMapImageryProvider({ url: 'https://a.tile.openstreetmap.org/' })
+    ),
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    sceneModePicker: false,
+    navigationHelpButton: false,
+    animation: false,
+    timeline: false,
+    fullscreenButton: false,
+    infoBox: false,
+    selectionIndicator: false
+  });
+
+  // Earth visual tuning: reduce the washed-out look and give the globe
+  // a darker, more natural space-scene appearance.
+  viewer.scene.globe.enableLighting = true;
+  viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#183b46');
+  viewer.scene.globe.showGroundAtmosphere = true;
+  viewer.scene.globe.atmosphereLightIntensity = 4.0;
+  viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#020507');
+
+
+  async function fetchSatellites() {
+    try {
+      const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(CURRENT_GROUP)}&FORMAT=tle`;
+
+      let tleText = '';
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`CelesTrak request failed: ${response.status}`);
+        tleText = await response.text();
+      } catch (directError) {
+        // allorigins.win is a free, unauthenticated public proxy - fine for
+        // local testing, not something to depend on in a deployed app (no
+        // uptime/rate-limit guarantees, and it's a third party sitting
+        // between you and CelesTrak). For anything beyond a demo, run your
+        // own small proxy/serverless function that fetches CelesTrak
+        // server-side and forwards the response.
+        console.warn('Direct CelesTrak request failed; trying CORS fallback (dev-only proxy).', directError);
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        const proxyResponse = await fetch(proxyUrl);
+        if (!proxyResponse.ok) throw directError;
+        tleText = await proxyResponse.text();
+      }
+
+      if (!tleText || tleText.length < 100) {
+        throw new Error('CelesTrak returned no usable TLE data.');
+      }
+
+      initializeSatellites(tleText);
+    } catch (err) {
+      console.error(err);
+      document.getElementById('loading').innerHTML =
+        `<p>Could not load satellite data: ${err.message}</p>`;
+      document.getElementById('status').innerText = 'Satellite data unavailable';
+    }
+  }
+
+  /*
+   * PARSE TLE (REPAIRED)
+   */
+  function initializeSatellites(tleText) {
+    const rawLines = tleText.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const records = [];
+
+    // Parse standard CelesTrak 3-line format:
+    // NAME, LINE 1, LINE 2. Also tolerate 2-line records without a name.
+    for (let i = 0; i < rawLines.length;) {
+      try {
+        if (rawLines[i].startsWith('1 ') && rawLines[i + 1]?.startsWith('2 ')) {
+          records.push({
+            name: `NORAD ${rawLines[i].substring(2, 7).trim()}`,
+            line1: rawLines[i],
+            line2: rawLines[i + 1]
+          });
+          i += 2;
+        } else if (
+          i + 2 < rawLines.length &&
+          rawLines[i + 1].startsWith('1 ') &&
+          rawLines[i + 2].startsWith('2 ')
+        ) {
+          records.push({
+            name: rawLines[i],
+            line1: rawLines[i + 1],
+            line2: rawLines[i + 2]
+          });
+          i += 3;
+        } else {
+          i += 1;
+        }
+      } catch {
+        i += 1;
+      }
+    }
+
+    satellites.length = 0;
+    entities.length = 0;
+    viewer.entities.removeAll();
+
+    viewer.entities.suspendEvents();
+
+    let count = 0;
+    for (const record of records) {
+      try {
+        const { name, line1, line2 } = record;
+        const noradId = line1.substring(2, 7).trim();
+        const satrec = satellite.twoline2satrec(line1, line2);
+
+        const satData = {
+          name, noradId, satrec, entity: null,
+          cachedPosition: undefined,
+          lastUpdateMs: 0
+        };
+
+        const entity = viewer.entities.add({
+          id: `sat-${noradId}-${count}`,
+          name,
+          position: new Cesium.CallbackProperty(() => {
+            const nowMs = performance.now();
+            if (
+              satData.cachedPosition === undefined ||
+              nowMs - satData.lastUpdateMs >= POSITION_UPDATE_INTERVAL_MS
+            ) {
+              satData.cachedPosition = getSatellitePositionNow(satrec);
+              satData.lastUpdateMs = nowMs;
+            }
+            return satData.cachedPosition;
+          }, false),
+          point: {
+            pixelSize: 3,
+            color: Cesium.Color.fromCssColorString('#ffffff'),
+            outlineColor: Cesium.Color.fromCssColorString('#1a1a1a'),
+            outlineWidth: 1,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          },
+          label: {
+            text: name,
+            font: '10px IBM Plex Mono, monospace',
+            show: false,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          }
+        });
+
+        satData.entity = entity;
+        entity.satData = satData;
+        satellites.push(satData);
+        entities.push(entity);
+        count++;
+      } catch (e) {
+        // Ignore malformed individual TLE records and continue loading the catalog.
+      }
+    }
+
+    viewer.entities.resumeEvents();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('status').innerText =
+      `Tracking: ${count.toLocaleString()} Satellites (${CURRENT_GROUP})`;
+  }
+
+
+  /*
+   * REAL-TIME ORBITAL PROPAGATION & COMPONENT MATH ENGINE
+   */
+  function getSatellitePositionNow(satrec) {
+    const time = Cesium.JulianDate.toDate(viewer.clock.currentTime);
+    const positionAndVelocity = satellite.propagate(satrec, time);
+    if (!positionAndVelocity || !positionAndVelocity.position) return undefined;
+    const positionEci = positionAndVelocity.position;
+
+    const gmst = satellite.gstime(time);
+    const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+
+    return Cesium.Cartesian3.fromRadians(
+      positionGd.longitude,
+      positionGd.latitude,
+      positionGd.height * 1000
+    );
+  }
+
+  // Function to calculate exact details when a satellite is selected
+  function updateSatelliteDetails(satData) {
+    const time = Cesium.JulianDate.toDate(viewer.clock.currentTime);
+    const positionAndVelocity = satellite.propagate(satData.satrec, time);
+
+    const pos = positionAndVelocity.position;
+    const vel = positionAndVelocity.velocity;
+
+    if (!pos || !vel) return;
+
+    const gmst = satellite.gstime(time);
+    const posGd = satellite.eciToGeodetic(pos, gmst);
+
+    // Convert orbital radians to degrees
+    const lat = Cesium.Math.toDegrees(posGd.latitude).toFixed(4);
+    const lon = Cesium.Math.toDegrees(posGd.longitude).toFixed(4);
+    const alt = posGd.height.toFixed(2); // In kilometers
+
+    // Compute velocity scalar speed index: sqrt(x² + y² + z²)
+    const speedKms = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
+    const speedKmh = (speedKms * 3600).toFixed(0); // Convert km/s to km/h
+
+    // Inject telemetry parameters into the UI elements
+    document.getElementById('selectedName').innerText = satData.name;
+    document.getElementById('norad').innerText = satData.noradId;
+    document.getElementById('altitude').innerText = `${alt} km`;
+    document.getElementById('latitude').innerText = `${lat}°`;
+    document.getElementById('longitude').innerText = `${lon}°`;
+    document.getElementById('speed').innerText = `${speedKmh} km/h`;
+  }
+
+  /*
+   * SELECTION & ACTIVE SEARCH BAR SYSTEM
+   */
+  let selectedSatellite = null;
+
+  function selectSatellite(satData) {
+    selectedSatellite = satData;
+    document.getElementById('details').style.display = 'block';
+    viewer.selectedEntity = satData.entity;
+    viewer.trackedEntity = satData.entity;
+    updateSatelliteDetails(satData);
+  }
+
+  function locateSatellite(searchTerm) {
+    if (!searchTerm) return;
+
+    const cleanTerm = searchTerm.toUpperCase().trim();
+    const found = satellites.find(s =>
+      s.name.toUpperCase().includes(cleanTerm) ||
+      String(s.noradId) === cleanTerm
+    );
+
+    if (found) {
+      selectSatellite(found);
+      document.getElementById('status').innerText =
+        `Located: ${found.name} (${found.noradId})`;
+    } else {
+      document.getElementById('status').innerText =
+        'Satellite not found in active dataset group.';
+    }
+  }
+
+  document.getElementById('searchButton').addEventListener('click', () => {
+    locateSatellite(document.getElementById('searchBox').value);
+  });
+
+  document.getElementById('searchBox').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') locateSatellite(e.target.value);
+  });
+
+  // Constantly refresh telemetry stats on screen at 60 FPS if a target is tracked
+  viewer.clock.onTick.addEventListener(() => {
+    if (selectedSatellite) {
+      updateSatelliteDetails(selectedSatellite);
+    }
+  });
+
+  /*
+   * HOVER LABEL TOOLTIP ENGINE
+   */
+  const hoverLabel = document.getElementById('hoverLabel');
+  const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+  const DEFAULT_POINT_COLOR = Cesium.Color.fromCssColorString('#ffffff');
+  let hoveredEntity = null;
+
+  function resetHoveredEntity() {
+    if (hoveredEntity && hoveredEntity.point) {
+      hoveredEntity.point.color = DEFAULT_POINT_COLOR;
+      hoveredEntity.point.pixelSize = 3;
+    }
+    hoveredEntity = null;
+  }
+
+  // Only ever touches the one entity under the cursor, not the whole
+  // catalog - resetting all 1000 points on every mousemove is the kind
+  // of thing that's invisible at 10 satellites and very visible at 1000.
+  handler.setInputAction((movement) => {
+    const pickedObject = viewer.scene.pick(movement.endPosition);
+
+    if (Cesium.defined(pickedObject) && pickedObject.id && pickedObject.id.satData) {
+      if (hoveredEntity && hoveredEntity !== pickedObject.id) {
+        resetHoveredEntity();
+      }
+
+      hoverLabel.style.display = 'block';
+      hoverLabel.style.left = (movement.endPosition.x + 15) + 'px';
+      hoverLabel.style.top = (movement.endPosition.y + 15) + 'px';
+      hoverLabel.innerText = pickedObject.id.name;
+
+      pickedObject.id.point.color = Cesium.Color.YELLOW;
+      pickedObject.id.point.pixelSize = 7;
+      hoveredEntity = pickedObject.id;
+    } else {
+      hoverLabel.style.display = 'none';
+      resetHoveredEntity();
+    }
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+  // Click handler to select a satellite via a 3D click on the globe
+  handler.setInputAction((click) => {
+    const pickedObject = viewer.scene.pick(click.position);
+
+    if (Cesium.defined(pickedObject) &&
+        pickedObject.id &&
+        pickedObject.id.satData) {
+      selectSatellite(pickedObject.id.satData);
+    } else {
+      selectedSatellite = null;
+      viewer.trackedEntity = undefined;
+      viewer.selectedEntity = undefined;
+      document.getElementById('details').style.display = 'none';
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+  // Boot the application engine
+  fetchSatellites();
+</script>
+</body>
+</html>
